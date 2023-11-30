@@ -1,13 +1,15 @@
 from django.views import View
 from django.http import HttpRequest, JsonResponse
 from django.core.exceptions import ObjectDoesNotExist
-from app.models import Car
+from app.models import Car,Company
+from .company import to_company
 import json
 
 def to_dict(car: Car) -> dict:
 
     return{
             "id":car.pk,
+            "company_id":car.company.pk,
             "name":car.name,
             "url":car.url,
             "description":car.description,
@@ -20,30 +22,38 @@ def to_dict(car: Car) -> dict:
             "updated_at":car.updated_at
         }
 
+class CarallView(View):
+    def get(self,request:HttpRequest) -> JsonResponse:
+    
+        try:
+            car_all = Car.objects.all()
+        except ObjectDoesNotExist:
+            return JsonResponse({'result':'object does not exist!'})
+            
+        result = [to_dict(car) for car in car_all]
+
+        return JsonResponse(result,safe=False)
+    
+        
+
 class CarView(View):
     def get(self,request:HttpRequest,id = None) -> JsonResponse:
-        if id is not None:
-            try:
-                car = Car.objects.get(id = id)
-                return JsonResponse(to_dict(car))
-            except ObjectDoesNotExist:
-                return JsonResponse({'result':'object does not exist!'})
+    
+        try:
+            company = Company.objects.get(id = id)
+            car_all = Car.objects.filter(company = company)
+        except ObjectDoesNotExist:
+            return JsonResponse({'result':'object does not exist!'})
             
-        else:
-            cars_all = Car.objects.all()
+        result = [to_dict(car) for car in car_all]
 
-            query_params = request.GET
-            name = query_params.get('name')
-            if name is not None:
-                car = Car.objects.filter(name = name)
-            else:
-                cars_all = Car.objects.all()
-            result = [to_dict(car) for car in cars_all]
-            return JsonResponse({'result':result})
+        return JsonResponse(result,safe=False)
         
-    def post(self, request:HttpRequest) -> JsonResponse:
+    def post(self, request:HttpRequest,id ) -> JsonResponse:
         data_json = request.body.decode()
         data = json.loads(data_json)
+
+        company = Company.objects.get(id = id)
 
         if not data.get('name'):
             return JsonResponse({'status': 'name is required!'})
@@ -61,6 +71,7 @@ class CarView(View):
             return JsonResponse({'status': 'motors is required!'})
         
         car = Car.objects.create(
+            company = company,
             name = data['name'],
             url  = data['url'],
             description = data.get('description',''),
@@ -70,13 +81,21 @@ class CarView(View):
             motors = data['motors']
         )
 
-        car.save()
-
         return JsonResponse(to_dict(car))
     
-    def put(self, request:HttpRequest,id = None) -> JsonResponse:
+class CarIDView(View):
+    def get(self,request:HttpRequest,id,car_id) -> JsonResponse:
         try:
-            car = Car.objects.get(id = id)
+            company = Company.objects.get(id = car_id)
+            car = Car.objects.get(company=company,id=id)
+        except ObjectDoesNotExist:
+            return JsonResponse({'status': 'object does not exist!'})
+        return JsonResponse(to_dict(car=car))
+    
+    def put(self,request:HttpRequest,id,car_id) -> JsonResponse:
+        try:
+            company = Company.objects.get(id = car_id)
+            car = Car.objects.get(company=company,id=id)
         except ObjectDoesNotExist:
             return JsonResponse({'status': 'object does not exist!'})
         
@@ -102,9 +121,10 @@ class CarView(View):
 
         return JsonResponse(to_dict(car=car))
     
-    def delete(self, request:HttpRequest,id = None) -> JsonResponse:
+    def delete(self,request:HttpRequest,id,car_id) -> JsonResponse:
         try:
-            car = Car.objects.get(id = id)
+            company = Company.objects.get(id = car_id)
+            car = Car.objects.get(company=company,id=id)
 
         except ObjectDoesNotExist:
             return JsonResponse({'status': 'object does not exist!'})
@@ -113,4 +133,20 @@ class CarView(View):
 
         return JsonResponse({'status':'ok'})
     
+def all(request:HttpRequest)->JsonResponse:
+    company_all = Company.objects.all()
+
+    result = []
+    for company in company_all:
+        company_data = to_company(company)
+        try:
+            company = company_data['id']
+            car_all = Car.objects.filter(company = company)
+            company_data['car'] = [to_dict(car) for car in car_all]
+        except ObjectDoesNotExist:
+            company_data['car'] = None
+            
+        result.append(company_data)
+
+    return JsonResponse({'result':result})
     
